@@ -19,3 +19,30 @@ CREATE TABLE `web.table` (
     PRIMARY KEY (`datekey`, `date_type`, `tenant_id`, `poi_id`)
 ) ENGINE=Innodb DEFAULT CHARSET=utf8 COMMENT='餐饮生态平台-ERP-数据异常监控表'
 ;
+
+        if [[ $STRUCT_CHECK_ONLY -eq 1 ]]; then 
+            record_log "check_only option given, and won't sync the table structure"
+        else 
+            sync_table_structure $@
+            if [[ $LIMIT_ROWS -eq 0 ]]; then
+                sync_table_contents $@
+            else:
+                sync_table_contents2 $@
+            fi  
+        fi 
+
+select id, age, name INTO OUTFILE "/home/xjc/git/mysql_sync/mysql_sync_stag/mysql_sync_tmp_scripts//web.test.content"
+    FIELDS TERMINATED BY ',' 
+
+    LINES TERMINATED BY '\n'
+    from web.test
+
+        OPTIONALLY ENCLOSED BY '\"' 
+
+truncate table web.test;
+insert into web.test values(1,1,"1");
+insert into web.test values(2,2,"2");
+insert into web.test values(3,3,"3");
+insert into web.test values(4,4,"4");
+
+select * from web.test;

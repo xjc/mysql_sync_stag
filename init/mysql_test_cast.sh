@@ -50,7 +50,7 @@ echo "show create table web.test;" | eval "mysql -NB $conn_loc" |
     tr A-Z a-z |                                                                                                               
     sed  's/\\n/\n/g' |                                                                                                     
     sed    's/[ \t][ \t]*/ /g' |                                                                                               
-    sed     's/\(engine\|auto_increment\|default charset\)=/\n\1=/g' 
+    sed     's/\(engine\CH|auto_increment\|default charset\)=/\n\1=/g' 
 
 http://www.cnblogs.com/ggjucheng/archive/2012/11/13/2768485.html
 
@@ -77,3 +77,5 @@ OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 
 mysqldump -uxjc -pjie0512 web test>./a1.sq | xargs cat ./a1.sql  | eval "mysql -Dweb -pjie0512 -NB -C"
+
+mysql -pjie0512 -s -Ne "select * from web.test" | sed 's/\t/","/g;s/^/"/g;s/$/"\r/g' > ./1.txt
