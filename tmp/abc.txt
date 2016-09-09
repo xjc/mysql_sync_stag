@@ -1,0 +1,9 @@
+total 28
+-rw-rw-r-- 1 xjc xjc  154 9月   8 22:10 1.sql
+-rw-rw-r-- 1 xjc xjc  160 9月   8 22:11 2.sql
+-rw-rw-r-- 1 xjc xjc  222 9月   8 22:12 1_1.sql
+-rw-rw-r-- 1 xjc xjc  154 9月   8 22:14 2_2.sql
+-rw-rw-r-- 1 xjc xjc 1637 9月   9 06:22 a.sql
+-rw-rw-r-- 1 xjc xjc 1865 9月   9 06:39 a1.sql
+-rw-rw-r-- 1 xjc xjc   59 9月   9 07:41 abc.log
+-rw-rw-r-- 1 xjc xjc    0 9月   9 07:50 abc.txt
