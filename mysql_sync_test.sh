@@ -1,11 +1,43 @@
 #!/usr/bin/env bash
 
-#log name
-LOG_FILE="mysql_sync_"$(date +"%Y%m%d%H%M%S").log
+
 BASE_DIR=$(pwd)
 SCRIPTS_DIR=$BASE_DIR/sql_scripts/
+LOG_DIR=$BASE_DIR/mysql_sync_log/
+#log name
+LOG_FILE=$LOG_DIR/"mysql_sync_"$(date +"%Y%m%d%H%M%S").log
+
+#mysql server config
+mysql_con_source=" -hlocalhost -pjie0512 -P3306 -uxjc"
+mysql_con_target=" -hlocalhost -pjie0512 -P3306 -uxjc"
+
+DB_NAME=
+TABLE_NAME=
 STRUCT_CHECK_ONLY=0
 LIMIT_ROWS=0
+
+#tmp dir
+if [ ! -d $SCRIPTS_DIR ]; then
+    mkdir -p $SCRIPTS_DIR
+fi
+[ ! -d $LOG_DIR ] && mkdir -p $LOG_DIR
+
+function usage() {
+    
+    echo "##################################################################################"
+    echo "Usage: ./mysql_sync_test.sh -d DB_NAME -t TABLE_NAME -c STRUCT_CHECK_ONLY(1|0,default 0) -n LIMIT_ROWS(default 0)"
+    echo "       ./mysql_sync_test.sh -d DB_NAME -t TABLE_NAME -c 1   #only check the table structure"
+    echo "       ./mysql_sync_test.sh -d DB_NAME -t TABLE_NAME -n 1000  #sync the table structure and only sync 1000 rows"
+    echo "PARAMETERS: " 
+    echo "            STRUCT_CHECK_ONLY: default 0, 1:check only|0:check first and sync the table"
+    echo "            LIMIT_ROWS         default 0, 0:sync all the table data | n(n>0) sync n rows"
+    echo "eg: ./mysql_sync_test.sh -d web -t test -c 1    #only check the table struct"
+    echo "    ./mysql_sync_test.sh -d web -t test   #sync the table struct and table content"
+    echo "    ./mysql_sync_test.sh -d web -t test -n 100   #sync the table struct and sync 100 rows"
+    echo "##################################################################################"
+    exit -1
+    
+}
 
 function record_log() {
     msg="$1"
@@ -14,23 +46,25 @@ function record_log() {
 }
 
 #check if target table structure is same as the source table
-function check_table_structure() {
-    return 0
-}
+#function check_table_structure() {
+#    return 0
+#}
 
 # Normalise mysql output a little
 norm_mysql() {                                                                                                                                                
     tr A-Z a-z |
     sed -e 's/\\n/\n/g' \
         -e 's/[ \t][ \t]*/ /g' \
-        -e 's/\(engine\|auto_increment\|default charset\)=/\n\1=/g'
+        -e 's/\(engine\|default charset\)=/\n\1=/g'
+    #    -e 's/\(engine\|auto_increment\|default charset\)=/\n\1=/g'
 }
 
 #you know that, as you have seen
 function drop_table() {
-    local mysql_con="$1"
-    local db_name="$2"
-    local table_name="$3"
+
+    local db_name="$1"
+    local table_name="$2"
+    local mysql_con="$3"
     local table_sql="drop table if exists ${db_name}.${table_name}" 
     record_log "begin to drop table ""${db_name}.${table_name}" 
 
@@ -42,9 +76,10 @@ function drop_table() {
 
 #you know that, as you have seen
 function truncate_table() {
-    local mysql_con="$1"
-    local db_name="$2"
-    local table_name="$3"
+
+    local db_name="$1"
+    local table_name="$2"
+    local mysql_con="$3"
     local table_sql="truncate table ${db_name}.${table_name}" 
     record_log "begin to truncate table ""${db_name}.${table_name}" 
 
@@ -81,6 +116,9 @@ function sync_table_structure() {
         }' | tee>$ddl_sql_file
 
     [ $? -ne 0 ] && (record_log "ERROR: get ddl sql, ${db_name}.${table_name}"; exit -1)
+
+    #recreate the table
+    drop_table "$db_name" "$table_name"  "$mysql_con_target"
     cat $ddl_sql_file | eval "mysql -NB ${mysql_con_target}" > $LOG_FILE 2>&1
     [ $? -ne 0 ] && (record_log "ERROR: create table ${db_name}.${table_name} at the target database"; exit -1)
     
@@ -96,39 +134,61 @@ function compare_table_structure() {
     local ddl_sql_file_source=$SCRIPTS_DIR/${db_name}.${table_name}.source
     local ddl_sql_file_target=$SCRIPTS_DIR/${db_name}.${table_name}.target
 
-    echo "$table_sql" |  | eval "mysql -NB $mysql_con_source" | 
+    echo "$table_sql" | eval "mysql -NB $mysql_con_source" | 
        awk -v begin_num=99999 '{if($0 ~/CREATE TABLE/) 
               {begin_num=NR; split($0, array_list, "CREATE TABLE"); 
               print "CREATE TABLE " array_list[2] 
               }
           if(NR>begin_num){print $0} 
         }' | norm_mysql | grep -v auto_increment | tee $ddl_sql_file_source
-    echo "$table_sql" |  | eval "mysql -NB $mysql_con_target" | 
+    echo "$table_sql" | eval "mysql -NB $mysql_con_target" | 
        awk -v begin_num=99999 '{if($0 ~/CREATE TABLE/) 
               {begin_num=NR; split($0, array_list, "CREATE TABLE"); 
               print "CREATE TABLE " array_list[2] 
               }
           if(NR>begin_num){print $0} 
         }' | norm_mysql | grep -v auto_increment | tee $ddl_sql_file_target
-    diff $ddl_sql_file_source $ddl_sql_file_target >$SCRIPTS_DIR/${db_name}.${table_name}.diff
+    
+    DIFF_FILE=$SCRIPTS_DIR/${db_name}.${table_name}.structure.diff
+    diff $ddl_sql_file_source $ddl_sql_file_target >$DIFF_FILE
+
     if [ $? -ne 0 ];then
         record_log "DIFFERENT TABLE STRUCTURE: ${db_name}.${table_name} \n"
-        record_log "for more details, please check the diff files"
-        [[ $STRUCT_CHECK_ONLY -eq 1 ]]; then 
+        record_log "for more details, please check the diff files: $DIFF_FILE"
+        return -1
+
+
+        if [[ $STRUCT_CHECK_ONLY -eq 1 ]]; then 
             record_log "check_only option given, and won't sync the table structure"
         else 
             sync_table_structure $@
-            sync_table_contents $@
+            if [[ $LIMIT_ROWS -eq 0 ]]; then
+                sync_table_contents $@
+            else:
+                sync_table_contents2 $@
+            fi
         fi
 
     else
         record_log "Congratulations: the table strucure is the same\t ${db_name}.${table_name} "
+        return 0
     fi
 
 }
 
+#function main_action() {
+#    local db_name="$1"
+#    local table_name="$2"
+#    local mysql_con_source="$3"
+#    local mysql_con_target="$4"
+#
+#    res=$(compare_table_structure "$db_name" "$table_name" "$mysql_con_source" "$mysql_con_target")
+#
+#
+#}
+
 #sync table contents using mysqldump
-funciton sync_table_contents() {
+function sync_table_contents() {
     local db_name="$1"
     local table_name="$2"
     local mysql_con_source="$3"
@@ -140,7 +200,8 @@ funciton sync_table_contents() {
     mysqldump $mysql_con_source $db_name $table_name>$OUT_FILE 
     cat $OUT_FILE | eval "mysql -D${db_name} -NB -C" >>$LOG_FILE 2>&1
     
-    if [[ ${PIPESTATUS[0]} -eq 0 -a ${PIPESTATUS[1]} -eq 0 ]];then
+    #if [[ ${PIPESTATUS[0]} -eq 0 -a ${PIPESTATUS[1]} -eq 0 ]];then
+    if [ ${PIPESTATUS[0]} -eq 0 -a ${PIPESTATUS[1]} -eq 0 ];then
         record_log "SUCCESFUL: sync table contents, ${db_name}.${table_name}"
     else
         record_log "ERROR: sync table contents, ${db_name}.${table_name}"
@@ -149,6 +210,7 @@ funciton sync_table_contents() {
 
 }
 
+#export table content as text file
 function sync_table_contents2() {
     local db_name="$1"
     local table_name="$2"
@@ -165,21 +227,25 @@ function sync_table_contents2() {
     if [[ $LIMIT_ROWS -gt 0 ]]; then
         EXPORT_DATA_STR="$EXPORT_DATA_STR"" limit $LIMIT_ROWS "
     fi
+    record_log "EXPORT SQL: \t""$EXPORT_DATA_STR"
 
     echo "$EXPORT_DATA_STR" | eval "mysql $mysql_con_source" >>$LOG_FILE 2>&1
-    if [[ ${PIPESTATUS[0]} -eq 0 -a ${PIPESTATUS[1]} -eq 0 ]];then
+    if [ ${PIPESTATUS[0]} -eq 0 -a ${PIPESTATUS[1]} -eq 0 ];then
         record_log "SUCCESFUL: export table contents, ${db_name}.${table_name}"
     else
         record_log "ERROR: export table contents, ${db_name}.${table_name}"
         eixt -1
     fi
 
-    echo "load data local inpath $OUT_FILE into table ${db_name}.${table_name}
+    LOAD_DATA_STR="load data local inpath $OUT_FILE into table ${db_name}.${table_name}
     FIELDS TERMINATED BY ',' 
     OPTIONALLY ENCLOSED BY '\"' 
-    LINES TERMINATED BY '\n'" | eval "mysql $mysql_con_target" >>$LOG_FILE 2>&1
+    LINES TERMINATED BY '\n'" 
+    record_log "IMPORT SQL: \t""$LOAD_DATA_STR"
+    
+    echo "$LOAD_DATA_STR" | eval "mysql $mysql_con_target" >>$LOG_FILE 2>&1
 
-    if [[ ${PIPESTATUS[0]} -eq 0 -a ${PIPESTATUS[1]} -eq 0 ]];then
+    if [ ${PIPESTATUS[0]} -eq 0 -a ${PIPESTATUS[1]} -eq 0 ];then
         record_log "SUCCESFUL: import table contents, ${db_name}.${table_name}"
     else
         record_log "ERROR: import table contents, ${db_name}.${table_name}"
@@ -200,6 +266,12 @@ function create_table() {
 
 #when you sync a table, check the num of rows of the target table and source table 
 function check_sync_result() {
+    local db_name="$1"
+    local table_name="$2"
+    local mysql_con_source="$3"
+    local mysql_con_target="$4"
+
+    compare_table_structure "$db_name" "$table_name" "$mysql_con_source" "$mysql_con_target"
     return 0
 }
 
@@ -207,8 +279,6 @@ function check_sync_result() {
 function load_config_file() {
     return 0
 }
-
-
 
 function sync_single_table() {
     return 0
@@ -218,4 +288,33 @@ function sync_multi_tables() {
     return 0
 }
 
-test xyz def
+#test xyz def
+
+#while getopts :qvd:l: OPTION
+
+#if [ $# -ne 3 ]
+while getopts ":d:t:c:n:" opt
+do
+    case $opt in
+        d) DB_NAME=$OPTARG;;
+
+        t) TABLE_NAME=$OPTARG;;
+
+        c) STRUCT_CHECK_ONLY=$OPTARG;;
+
+        n) LIMIT_ROWS=$OPTARG;;
+
+        ?) usage
+           exit -1;;
+    esac
+
+done
+
+echo "###################"
+echo "db_name: $DB_NAME"
+echo "table_name: $TABLE_NAME"
+echo "STRUCT_CHECK_ONLY: $STRUCT_CHECK_ONLY"
+echo "LIMIT_ROWS: $LIMIT_ROWS"
+
+
+
