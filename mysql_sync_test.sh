@@ -9,9 +9,9 @@ LOG_DIR=$BASE_DIR/mysql_sync_log/
 LOG_FILE=$LOG_DIR/"mysql_sync_"$(date +"%Y%m%d%H").log
 
 #mysql server config
-mysql_con_source=" -hlocalhost -pjie0512 -P3306 -uxjc"
+mysql_con_source=" -hlocalhost -p123456 -P3306 -uxjc"
 #mysql_con_source=" -h127.0.0.1 -pjie0512 -P3306 -uxjc"
-mysql_con_target=" -hlocalhost -pjie0512 -P3306 -uxjc"
+mysql_con_target=" -hlocalhost -p123456 -P3306 -uxjc"
 
 DB_NAME=
 TABLE_NAME=
